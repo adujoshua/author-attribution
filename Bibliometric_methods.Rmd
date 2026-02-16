@@ -1,0 +1,1181 @@
+---
+title: "R Notebook"
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+
+```
+#----- Note------
+This is a redacted version of a semester paper of a Masters program in Economics at the University of Kassel, Germany.
+
+
+Title: Comparative Analysis of Bibliometric weighting methods: A Case Study of University of Kassel and Klinikum Kassel
+
+Name: Joshua Adu
+
+Date: 19 January, 2026
+
+linkedin: https://www.linkedin.com/in/adujoshua/
+
+
+### ....Publication volumes and methods of co-author weighting...###
+
+Publication volumes are among the key indicators in bibliometrics. 
+However, simple counts (full counting) have methodological weaknesses, since publications 
+are usually produced in teams and the number of contributing authors
+can vary greatly. 
+
+To address this problem, bibliometric research has developed several methods of co-author weighting:
+
+#____ Weighting Methods ______
+
+• Full Counting: Each participating institution receives a score of 1, irrespective of the number of authors contributed by the institution
+
+• Fractional counting: Each publication is distributed equally across all contributing authors: Wi = 1/n. where is the number of authors.
+example: A publication with five authors contributes 0.2 to the publication volume of each. 1 publication with 4 authors → each receives 0.25.
+
+• First-author weighting: The first author receives a larger share (e.g., 0.5), while the remaining share is distributed equally among the other authors.
+Example: The first author (i = 1) receives weight 𝑤1 = 0.5. The remaining n−1 authors (i = 2, … , n) share the other 0.5 equally: Wi= 0.5/(𝑛−1) for i= 2,…,n
+This ensures ∑ W𝑖 = 1
+
+• Harmonic counting: Shares decrease harmonically with the author position. Weights are calculated according to
+where i is the author’s position and n is the total number of authors.
+Example: 1 publication with 3 authors. Raw weights: 1/1 (author 1), 1/2 (author 2), 1/3 (author 3). Sum = 1 + 0.5
++ 0.333… = 1.833.
+Normalized weights: author 1 = 1 / 1.833 ≈ 0.545, author 2 = 0.5 / 1.833 ≈ 0.273, author 3 = 0.333 / 1.833 ≈
+0.182.
+Thus, the first author receives a substantially larger share, but other authors are not excluded.
+
+
+•𝟏/√N-counting: Each contributing author receives 𝟏/√N. Therefor each institution receive [ (𝟏/√N) times Number of Authors from Institution]
+
+
+#----- Objectives-------
+
+In this project, I will examine how different weighting methods affect the measured publication volume of two 
+institutions: the University of Kassel and Klinikum Kassel for 2023 publications.
+Main questions:
+• Which method is preferred in a real bibliometric evaluation?
+• Which factors (e.g., discipline, team size, authorship conventions) play a role in this decision?
+• Which differences arise between the methods?
+
+
+NB: This is a masters (6 ECTs) project. 
+1. I will share a redacted version of the presentation and R scripts. Additional information can be found in the accompaning presentation.
+2. Basic knowledge of R and data analysis is required.
+
+
+#----- Data Sources-------
+
+Source: OpenAlex database. 
+The raw data is structured into four tables:
+kassel2526_items: Contains all publications (article-level) relating to Kassel Institutions
+kassel2526_items_authors: Provides author-level information for Kassel publications
+kassel2526_authors_affiliations: Contains all authors with a Kassel affiliation
+kassel2526_items_affiliations: Contains all publications with a Kassel affiliation
+
+```
+
+
+
+```{r}
+# Clears the working environment
+
+rm(list = ls())
+
+```
+
+
+```
+--- Section 1 ---
+
+1. This section installs and load relevant libraries
+2. Sets working directory
+
+```
+
+
+
+```{r}
+# To run the code smoothly, the necessary packages and libraries are required.
+
+# The code snippet provided below will install these required packages if they are not already installed on your system.
+
+
+install_if_missing <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg)
+  }
+}
+install_if_missing("pacman")
+install_if_missing("tidyverse") # Installs core tidyverse packages (dplyr, ggplot2, tidyr, stringr, readr, purr, tibble, forcats, lubridate)
+install_if_missing("gtable")
+install_if_missing("here")
+
+```
+
+
+```{r}
+# Load the required packages and libraries
+# gtable - to create summary tables
+# tidyverse - collection of packages for data science
+# scales - to label summary tables
+# rlang -  for enquo / {{ }}
+# here - absolute file path management
+
+pacman::p_load(tidyverse, gtable, scales, rlang, here) 
+
+# Set Working Directory (wd)
+#working_directory <- getwd()
+#setwd(working_directory)
+#setwd(file.path(working_directory, data_set))
+
+# Show files in wd
+list.files()
+```
+
+```
+--- Section 2 ---
+
+This section:
+1. loads the datasets
+2. Clean where necessary
+3. Merge datasets
+
+```
+
+
+```{r}
+# kassel2526_items: Contains all Kassel publications (article-level).
+
+items <- read.csv(here("dataset", "kassel2526_items.csv"))
+
+head(items) # Show first rows of items
+```
+
+
+```{r}
+# kassel2526_items_authors: Provides author-level information for Kassel publications.
+
+items_authors <- read.csv(here("dataset", "kassel2526_items_authors.csv"))
+
+items_authors <- items_authors %>% 
+  mutate( # create a unique key by concatenating item_id and openalex_author_id
+    item_id_openalex_author_id = paste(item_id, openalex_author_id, sep = "-")
+  ) %>%
+
+# Clean duplicates in kassel2526_items_authors using the concatenated columns
+  distinct(item_id_openalex_author_id, .keep_all = TRUE) 
+
+# merge items_authors and kassel_authors
+merge_authors <-  merge(items, items_authors, by="item_id") # Link to items
+nrow(merge_authors)
+print(merge_authors)
+
+```
+
+```{r}
+# kassel2526_authors_affiliations: Contains all authors with a Kassel affiliation.
+
+
+authors_aff <- read.csv(here("dataset","kassel2526_authors_affiliations.csv")) 
+
+
+# Duplicates in item_id because of multiple contributions.
+# This will explode the data after merging due to many to many relationship
+
+merge_all <-  merge(merge_authors, authors_aff, by=c("item_id", "author_seq_nr"))
+merge_all
+```
+
+
+```
+--- Section 3: General Preparation of Data ---
+
+This Section Prepares the merged data
+
+```
+
+```{r}
+# .............................................................
+# 1. Create a new column that would be used to clean duplicates
+# 2. Remove all special characters
+# 3. Filter University of Kassel and Klinikum Kassel
+# 4. Rename University of Kassel as uni_kassel and Klinikum Kassel as kli_kassel
+# 5. filter only 2023 publication year
+# 
+#................................................................
+
+merge_all <- merge_all %>%
+  
+  mutate( # 1ST STEP TO CLEAN DUPLICATES
+    item_author_id = paste(item_id, openalex_author_id, sep = "_") # Concatenate item_id and openalex_author_id with an underscore Separator ---
+  ) %>%
+  
+  # Clean duplicates
+  distinct(item_author_id, .keep_all = TRUE) %>%
+  
+  mutate(
+    across( # List all columns with special characters and clean
+      .cols = c(organization, vendor_org_id, item_type, keyword, class_name),
+      .fns = ~gsub('[\\{|\\}|"]', '', .x)   # the cleaning function
+    )
+  ) %>% 
+  
+  filter(organization %in% c("University of Kassel", "Klinikum Kassel")) %>% 
+  mutate(
+    # We are modifying the 'Location' column
+    organization = case_when(
+      # If 'organisation' is "University of Kassel", change it to "uni_kassel"
+      organization == "University of Kassel" ~ "uni_kassel",
+      
+      # If 'organization' is "Klinikum Kassel", change it to "kli_kassel"
+      organization == "Klinikum Kassel" ~ "kli_kassel",
+      
+      # For all other values (TRUE), keep the original value
+      TRUE ~ organization
+    )
+  ) %>%
+  
+  filter(pubyear == 2023)
+
+```
+
+
+```{r}
+
+# ---  Transformation Pipeline ---
+
+# .............................................................
+# 1. Create a new column (item_id_org) by combining item_id and organization
+# 2. Group publications at article level per institution using item_id_org
+# 3. 
+# 4. 
+# 5.  
+#................................................................
+
+raw_df <- merge_all %>%
+  
+  mutate( 
+    item_id_org = paste(item_id, organization, sep = "-") # To be able to split publications that include uni_kassel and klinikum kassel as co-authors
+  ) %>%
+  
+  # 2.2 Calculate two counts simultaneously: total rows AND organization count
+  group_by(item_id_org, author_count) %>%
+  mutate(author_count_new = n()) %>% # Calculate total rows per item_id
+  ungroup() %>%
+  
+  # Pre-summarize: count occurrences of each organization per item_id
+  group_by(item_id_org, author_count, author_count_new, organization) %>%
+  summarise(org_count = n(), .groups = 'drop') %>%
+  
+  # 2.3 Pivot the data (Wide Format)
+  pivot_wider(
+    names_from = organization,
+    values_from = org_count,
+    values_fill = 0, # Fill missing organizations with 0
+  ) %>%
+  
+  # 2.4 Final cleanup: Select, rename, and order columns to match the output image
+  select(
+    item_id_org,
+    author_count,
+   author_count_new,
+
+  ) %>%
+  separate(
+    col = item_id_org,        # The column we want to split
+    into = c("item_id", "organization"), # The names of the new columns
+    sep = "-",                  # The delimiter (the underscore character)
+    remove = TRUE              # Keep the original 'Combined_Info' column (optional)
+      ) 
+
+  
+```
+
+
+
+
+```{r}
+
+# .............................................................
+# Update dataframe with author sequence numbers
+#................................................................
+
+# 1. Create dataframe of author sequence numbers.
+# 2. Join the author sequence numbers to the processed data frame.
+
+first_authors <- authors_aff %>%
+  filter(author_seq_nr == 1) %>%
+  select(item_id, author_seq_nr) %>%
+  distinct(item_id, .keep_all = TRUE)
+
+
+raw_df <- raw_df %>% 
+  left_join(
+    first_authors, by = "item_id") %>% 
+  mutate(author_seq_nr = ifelse(is.na(author_seq_nr), 0, author_seq_nr))
+
+```
+
+
+
+```{r}
+#...................................
+# Decomposition of type of authorship
+#...................................
+
+# This code groups the author_ship into 
+  # 1. Single author - Where the author is only 1
+  # 2. Full Authorship - where there are more than 1 author and they are from the same institution
+  # 3. First_co-author - where there are/is an external author but the 1st author is from the Kassel institution (Uni-Kassel or Klinikum Kassel)
+  # 4. Co-author - where there are/is an external author and an external author is the first author.
+
+
+raw_df <- raw_df %>% 
+  rowwise() %>% 
+  mutate(
+    authorship_type = if (author_count == 1) {
+        # Condition 1: Single Author
+        "single"
+        
+      } else if (author_count == author_count_new) {
+        # Condition 2: All authors are from the same institution (Full institutional credit)
+        "full"
+        
+      } else if (author_seq_nr == 1 & author_count > author_count_new) {
+        # Condition 3: Kassel institution is the 1st author, but there are external co-authors
+        "first_co-author"
+        
+      } else if (author_seq_nr != 1 & author_count > author_count_new) {
+        # Condition 4: Kassel is a co-author but 1st author is external
+        "co-author"
+        
+      } else {
+        # Default: Use a string or NA to match the other types
+        "none" 
+      }
+  ) %>% 
+  ungroup() # Returns the data to a standard data frame
+```
+
+  
+```
+--- Section 4: Method Specific Data Processing and Computation for Each Method ---
+
+This section processes the data further and compute counting methods
+
+```
+  
+  
+  
+```{r}
+
+#...................................
+# Full counting
+# Each participating institution receives a score of 1, irrespective of the number of authors contributed by the institution
+#...................................
+
+
+df_output <- raw_df %>%
+  mutate(
+    # Assign 1 to each contributing institution
+    full_count = 1
+  )
+```
+
+
+```{r}
+
+#...................................
+# Fractional counting
+#...................................
+
+# Each publication is distributed equally across all contributing authors: Wi = i/n 
+# fractional count = Wi* number of authors from institution
+
+df_output <- df_output %>%
+  mutate(
+    frac_count = round((1/author_count)*author_count_new, digits=2)
+  )
+```
+
+```{r}
+#...................................
+# First Author Weighting
+# The first author receives  0.5 while the remaining 0.5 is distributed equally among the other authors.
+#...................................
+
+
+# Condition 1: Exclusive Authorship (All authors are from the target institution): Assign 1
+# Condition 2: Mixed Authorship but the Kassel institution is the First Author The first author receives 0.5 while the remaining 0.5 is distributed equally among the # # # other authors.
+# Condition 3: Mixed Authorship - Target institution is Co-Author but First author is external
+
+
+first_author_share <- 0.5 # Define the constant share for first author
+remaining_author_share <- 1 - first_author_share # remainingauthors share 0.5 equally
+
+
+df_output <- df_output %>%
+  mutate(
+    first_author_count = case_when(
+      # Condition 1: Exclusive Authorship 
+      # (All authors are from the target institution)
+      author_count == author_count_new ~ 1,
+      
+      # Condition 2: Mixed Authorship and the Kassel institution is the First Author
+      author_seq_nr == 1 & author_count > author_count_new ~ round(
+        first_author_share + ((remaining_author_share / (author_count - 1)) * (author_count_new - 1)), 
+        digits = 2
+      ),
+        
+      # Condition 3: Mixed Authorship - Target institution is Co-Author but First author is external
+      author_seq_nr != 1 & author_count > author_count_new ~ round(
+        (remaining_author_share / (author_count - 1)) * author_count_new, 
+        digits = 2
+      ),
+        
+      # Default: No authors from the target school
+      TRUE ~ 0
+    )
+  )
+  
+```
+
+
+```{r}
+
+# --- Harmonic Counting ---
+
+#...................................
+# Shares decrease harmonically with the author position.
+# Weights are calculated according to the author’s position and the total number of authors
+# Example: publication with 3 authors. Raw weights: 1/1 (author 1), 1/2 (author 2), 1/3 (author 3). Sum = 1 + 0.5 + 0.333… = 1.833.
+# Normalized weights: author 1 = 1 / 1.833 ≈ 0.545, author 2 = 0.5 / 1.833 ≈ 0.273, author 3 = 0.333 / 1.833 ≈ 0.182.
+#...................................
+
+
+
+# This code snipet calculate harmonic using the following steps
+# 1. Calculate harmonic denominator (summation of harmonic weights)
+# 2. Set a seed for sampling
+# 3. Sample author positions
+# 4. compute raw weights
+# 5. Compute the normalized weights 
+# 4. Sum the normalized weights
+
+
+df_output <- df_output %>% 
+  
+ 
+  rowwise() %>% #treat each row as its own "group." Necessary because sum() usually summarizes an entire 
+   
+  mutate( # Calculate the harmonic denominator for this specific N
+    # seq_len creates the sequence (1, 2, ... author_count)
+    # sum(1/1, 1/2, ... 1/N) calculates the harmonic sum for that sequence
+    har_denom = round(sum(1 / seq_len(author_count)), digits = 2)
+  ) %>%
+  
+  mutate(
+    # 1. Extract the last 4 characters of item_id to be used as seed to sample
+    # 2. Convert the result to an integer
+    samp_seed = as.integer(str_sub(item_id, -4))
+    
+    
+  ) %>%
+  
+  ungroup() %>% 
+  
+  rowwise() %>% 
+  
+  mutate(
+    set.seed(samp_seed), # to maintain reproducibility of results
+    
+    author_seq_samp = list(
+      if (author_count == author_count_new) {
+        # Condition 1: All authors are from the target school
+        seq_len(author_count)
+        
+      } else if (author_seq_nr == 1 & author_count > author_count_new) {
+        # Condition 2: Kassel is the 1st author, 
+        # sample the remaining Kassel positions from the rest
+        c(1, sample(2:author_count, (author_count_new - 1)))
+        
+      } else if (author_seq_nr != 1 & author_count > author_count_new) {
+        # Condition 3: Kassel is a co-author, the first author is external.
+        # Sample positions from the whole range
+        sample(2:author_count, author_count_new)
+        
+      } else {
+        # Default: No authors
+        0
+      }
+    )
+  ) %>% 
+  
+  mutate(
+    
+    raw_weights = list(round(1/author_seq_samp,2)), # compute the raw weights
+    normalized_weights = list(round(raw_weights/har_denom, digits=2)), # compute the harmonic weights
+    harmonic_count = sum(normalized_weights) # sum the normallized weights
+  ) %>%
+  ungroup()  %>%
+  
+  mutate(
+    # Formating data structures
+    # 1. Convert all list/arrays to strings to save memory and for better rendering
+    # Convert list [1, 4, 5] into string "1, 4, 5" for better display
+    author_seq_samp = map_chr(author_seq_samp, ~ paste(.x, collapse = ", ")),
+    raw_weights = map_chr(raw_weights, ~ paste(.x, collapse = ", ")),
+    normalized_weights = map_chr(normalized_weights, ~ paste(.x, collapse = ", ")),
+  )%>%
+  
+  # rearrange positions of columns
+  select(item_id, organization, author_count, author_count_new, author_seq_nr, authorship_type, full_count, 
+         frac_count, first_author_count, harmonic_count, everything())
+  
+
+```
+
+
+```{r}
+#.....................
+# 𝟏/√N-counting
+#.....................
+
+
+# Each contributing author receives 𝟏/√N
+# each institution receive ((𝟏/√N)*n)
+
+df_output <- df_output %>%
+  mutate(
+    # frac_count_uni: fractional counting for University of Kassel
+    inv_sqrt_count = round((1/sqrt(author_count))*author_count_new, digits=2)
+    
+  ) %>%
+  
+  # rearrange positions of columns
+  select(item_id, organization, author_count, author_count_new, author_seq_nr, authorship_type, full_count, 
+         frac_count, first_author_count, harmonic_count, inv_sqrt_count, everything())
+```
+
+```{r}
+#.....................
+
+# Save dataframe (final_output) as a .csv file in the working directory
+#.....................
+
+
+df_to_save <- df_output 
+write.csv(df_to_save, "final_output.csv", row.names = FALSE)
+```
+
+
+
+
+```
+--- Section 4: DATA ANALYSIS ---
+
+1. Comparisons and Interpretation
+2. Visualisations
+```
+
+
+```{r}
+
+#.....................
+# Total number of distinct authors per organisation
+#.....................
+
+# Total number of distinct authors per organisation
+
+
+distinct_authors <- merge_all %>%
+  # Clean duplicates author ids
+  distinct(openalex_author_id, .keep_all = TRUE)
+
+table(distinct_authors$organization)
+```
+
+
+```{r}
+
+#.....................
+# Total number of publications per institution
+#.....................
+
+
+table(df_output$organization)
+
+# https://www.uni-kassel.de/uni/en/university/our-profile/facts-and-figures.html
+
+```
+
+
+```{r}
+
+#.....................
+# Calculate each weighting score for each organisation by summing respective columns
+#.....................
+
+# Create the pivot table for the types of authorship for each organization
+
+pivot_table <- df_output %>%
+  # 1. Count the occurrences of each type authorship per organization
+ 
+  group_by(organization, authorship_type) %>%
+  summarize(total_count = n(), .groups = "drop") %>%
+  
+  # 2. Pivot the authorship_type to columns
+  pivot_wider(
+    names_from = authorship_type,   # These become the new column headers
+    values_from = total_count,      # These become the numbers in the cells
+    values_fill = 0                 # Replace missing combinations with 0
+  )
+pivot_table
+# View the result
+
+```
+
+
+```{r}
+
+#.....................
+# Calculate each weighting score for each organisation by summing respective columns
+#.....................
+
+# 1. Prepare the data (Calculate percentages)
+plot_data <- df_to_save %>%
+  count(organization, authorship_type) %>%
+  group_by(organization) %>%
+  mutate(percent = n / sum(n))
+
+# 2. Create the Pie Chart
+ggplot(plot_data, aes(x = "", y = percent, fill = authorship_type)) +
+  # Create a stacked bar first
+  geom_col(color = "white") +
+  
+  # Convert the bar to a circle
+  coord_polar("y", start = 0) +
+  
+  # Separate by organization
+  facet_wrap(~ organization) +
+  
+  # Clean up the visual (remove axes and grid)
+  theme_void() + 
+  labs(
+    title = "Authorship Type",
+    fill = "Type"
+  ) +
+  # Optional: Add text labels inside the slices
+  geom_text(aes(label = label_percent(accuracy = 1)(percent)), position = position_stack(vjust = 0.5), size = 3)
+```
+
+```{r}
+
+#.....................
+# Create a density plot of number of authors for each publication
+#.....................
+
+# Create a function for density plots
+
+
+
+dens_authors <- function(data, x, group) {
+  x     <- enquo(x)
+  group <- enquo(group)
+
+  ggplot(data, aes(x = {{ x }}, fill = {{ group }}, colour = {{ group }})) +
+    geom_density(alpha = 0.3, na.rm = TRUE) +
+    # xlim(0, 55) +
+    theme(
+      legend.position   = "right",
+      legend.title      = element_text(size = 12, face = "bold"),
+      legend.text       = element_text(size = 10),
+      legend.background = element_rect(fill = "white", colour = "grey80")
+    )
+}
+
+
+density_author_count <- dens_authors(df_to_save, author_count, organization)
+density_author_count
+
+```
+
+
+```{r}
+
+#.....................
+# Create a density plot of number authors of each publication who are from the Kassel institution
+#.....................
+
+
+density_count_new <- dens_authors(df_to_save, author_count_new, organization)
+density_count_new
+
+```
+
+
+
+```{r}
+
+#.....................
+# Create a histogram of number authors for each publication
+#.....................
+
+
+hist_plot <- function(data, x, group, binwidth = 4) {
+  x     <- enquo(x)
+  group <- enquo(group)
+
+  ggplot(data, aes(x = {{ x }}, fill = {{ group }}, colour = {{ group }})) +
+    geom_histogram(binwidth = binwidth) +
+    facet_wrap(vars({{ group }}), scales = "free_y")
+}
+
+
+hist_authors <- hist_plot(df_to_save, author_count, organization)
+hist_authors
+
+```
+
+
+```{r}
+
+#.....................
+# Create a histogram of number authors of each publication who are from the Kassel institution
+#.....................
+
+# Histogram using author_count_new
+
+hist_authors <- hist_plot(df_to_save, author_count_new, organization)
+hist_authors
+```
+
+
+```{r}
+ggplot(df_to_save, aes(organization, fill = organization)) + #
+  geom_bar() +
+  #facet_wrap(~ organization, scales = "free_y") + # Each method gets its own Y-axis scale
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+```{r}
+# 1. Prepare the data (Aggregation by year)
+# We assume df_output has the individual weights for each paper
+plot_data <- df_output %>%
+  group_by(organization) %>%
+  summarize(
+    Full_Count         = sum(full_count),
+    Fractional_Count   = sum(frac_count),
+    First_Author_Count = sum(first_author_count),
+    Harmonic_Count     = sum(harmonic_count),
+    Inv_Sqrt_Count     = sum(inv_sqrt_count)
+  )
+
+plot_data
+```
+
+
+```{r}
+plot_data <- plot_data %>%
+  
+  # 2. Reshape for plotting: 5 columns become 1 "Metric" column
+  pivot_longer(
+    cols = -organization,           # Keep author_countas the X-axis
+    names_to = "Method",       # Name of the legend column
+    values_to = "Total_Credit" # Name of the Y-axis column
+  )
+
+
+df_long <- plot_data %>%
+  pivot_longer(cols = `Total_Credit`, names_to = "credit", values_to = "value")
+
+# Facet by Method (separate panels for each method)
+ggplot(df_long, aes(x = Method, y = value, fill = Method)) +
+  geom_col() +
+  geom_text(aes(label = round(value, 1)),           # Show values (1 decimal)
+            vjust = -0.5,                          # Position above bars
+            size = 3.5,                            # Text size
+            fontface = "bold") +                   # Bold text
+  facet_wrap(~ organization, scales = "free_y") +  # Free y-scales for different ranges
+  labs(title = "Scores by Organization",
+       x = "Method", y = "Total Credit") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text = element_text(size = 10, face = "bold")) +
+  scale_color_brewer(palette = "Set1") # Aesthetic color palette
+```
+
+
+```{r}
+
+# 1. Prepare the data (Aggregation by year)
+# We assume df_output has the individual weights for each paper
+plot_data_avg <- df_output %>%
+  group_by(organization) %>%
+  summarize(
+    Full_Count         = round(sum(full_count)/sum(full_count),2),
+    Fractional_Count   = round(sum(frac_count)/sum(full_count),2),
+    First_Author_Count = round(sum(first_author_count)/sum(full_count), 2),
+    Harmonic_Count     = round(sum(harmonic_count)/sum(full_count),2),
+    Inv_Sqrt_Count     = round(sum(inv_sqrt_count)/sum(full_count),2)
+  )
+
+plot_data_avg
+
+```
+
+
+```{r}
+plot_data_avg1 <- plot_data_avg %>%
+  
+  # 2. Reshape for plotting: 5 columns become 1 "Metric" column
+  pivot_longer(
+    cols = -organization,           # Keep author_countas the X-axis
+    names_to = "Method",       # Name of the legend column
+    values_to = "Total_Credit" # Name of the Y-axis column
+  )
+
+
+df_long <- plot_data_avg1 %>%
+  pivot_longer(cols = `Total_Credit`, names_to = "credit", values_to = "value")
+
+# Facet by Method (separate panels for each method)
+ggplot(df_long, aes(x = Method, y = value, fill = organization)) +
+  geom_col(position = position_dodge(width = 0.8)) +
+  geom_text(aes(label = round(value, 2)),           # Show values (1 decimal)
+            position = position_dodge(width = 0.8),
+            vjust = -0.5,                          # Position above bars
+            size = 3.5,                            # Text size
+            fontface = "bold") +                   # Bold text
+  #facet_wrap(~ organization, scales = "free_y") +  # Free y-scales for different ranges
+  labs(title = "Relative Scores by Organization",
+       x = "Method", y = "Total Credit") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text = element_text(size = 10, face = "bold")) +
+  scale_color_brewer(palette = "Set1") # Aesthetic color palette
+```
+
+
+
+```
+
+--- Section 5: Modelling ---
+
+This Section uses a hypothetical data to Create models under 3 assumptions
+Models are used to explain the behavior of each counting method
+Data was generated using doubling geometric series (2^(0:(n-1))). Where N = 10
+```
+
+
+
+
+```{r}
+# Generate a geometric (doubling) series 
+
+
+n <- 10
+geometric_series <- 2^(0:(n-1))
+
+
+# 2. Store as a Data Frame
+geom_df <- data.frame(
+  row_index = 1:n,
+  #Power_n = 0:(n-1),
+  author_count = geometric_series
+)
+
+# Group modelling into 
+
+# 1. Full authourship for all methods
+
+# 2. Harmonic counting Simple count, 
+
+
+#Comparison of Bibliometric Counting Methods Under Full Authorship
+```
+
+
+
+
+```{r}
+#...................................
+# Model 1: full authorship
+#...................................
+
+full_authorship <- geom_df %>%
+  mutate(
+    # simple count: Assign 1 to each contributing institution
+    simple_count = 1,
+    
+    # fractional count: A simple arithmetic calculation (Total Score)
+    frac_count = round((1/author_count)*author_count, digits=2),
+    
+    # first author count
+    first_author_count =  1,
+    
+    # first author count
+    harmonic_count =  1,
+    
+    # 𝟏/√𝒏-counting
+    inv_sqrt_count = round((1/sqrt(author_count))*author_count, digits=2)
+  )
+
+print(full_authorship)
+```
+
+```{r}
+
+# funtion to reshape the data for ploting
+
+summary_model <- function(data, 
+                       group_var = author_count) {
+  
+  group_var <- enquo(group_var)
+  
+  data %>%
+    group_by(!!group_var) %>%
+    summarize(
+      Full_Count         = sum(simple_count, na.rm = TRUE),
+      Fractional_Count   = sum(frac_count, na.rm = TRUE),
+      First_Author_Count = sum(first_author_count, na.rm = TRUE),
+      Harmonic_Count     = sum(harmonic_count, na.rm = TRUE),
+      Inv_Sqrt_Count     = sum(inv_sqrt_count, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    # Reshape for plotting
+    pivot_longer(
+      cols = -!!group_var,
+      names_to = "Method",
+      values_to = "Total_Credit"
+    )
+}
+
+# funtion to plot the models
+
+plot_models <- function(data, 
+                        x_var = author_count, 
+                        y_var = Total_Credit,
+                        color_var = Method,
+                        title = "Model 1: Full Authorship",
+                        subtitle = "as authors increase from 1 to 512") {
+  
+  x_var     <- enquo(x_var)
+  y_var     <- enquo(y_var)
+  color_var <- enquo(color_var)
+  
+  ggplot(data, aes(x = {{ x_var }}, 
+                   y = {{ y_var }}, 
+                   color = {{ color_var }})) +
+    geom_line() +
+    geom_point() +
+    theme_minimal() +
+    labs(
+      title = title,
+      subtitle = subtitle,
+      x = "Author Count",
+      y = "Score",
+      color = "Counting Method"
+    ) +
+    scale_color_brewer(palette = "Set1")
+}
+
+
+```
+
+
+
+
+
+```{r}
+
+
+
+```
+
+
+
+```{r}
+#...................................
+# Model 2: Co-Authorship with Only the 1st Author as External
+# Model 2: Co-Authorship with Only the 1st Author as External
+#...................................
+
+full_authorship_1 <- geom_df %>%
+  mutate(
+    # simple count: Assign 1 to each contributing institution
+    simple_count = 1,
+    
+    # fractional count: A simple arithmetic calculation (Total Score)
+    frac_count = round((1/author_count)*(author_count-1), digits=2),
+    
+    # first author count
+    #  Mixed Authorship - Target institution is Co-Author (but First author is external)
+    first_author_count = round((remaining_author_share / (author_count - 1)) * (author_count - 1), 2),
+    
+    
+    # 𝟏/√𝒏-counting
+    inv_sqrt_count = round((1/sqrt(author_count))*(author_count - 1), digits=2)
+    ) %>% 
+  rowwise() %>% #treat each row as its own "group." Necessary because sum() usually summarizes an entire 
+  
+  mutate(
+    # seq_len creates the sequence (1, 2, ... author_count)
+    # sum(1 / ...) calculates the harmonic sum for that sequence
+    har_denom = round(sum(1 / seq_len(author_count)), digits = 2)
+  ) %>%
+  
+  mutate(
+    # 1. Extract the last 4 characters of item_id to be used as seed to sample
+    # 2. Convert the result to an integer
+    samp_seed = as.integer(author_count)
+    
+    
+  ) %>%
+  
+  ungroup() %>% 
+  
+  rowwise() %>% # Ungroup after using rowwise() to return to normal operations
+  
+  mutate(
+    set.seed(samp_seed),
+    author_seq_samp = 1
+      # Condition : Kassel institution is a co-author but only the first author.
+      # Sample positions from the whole range
+        
+    
+  ) %>% 
+  mutate(
+    # compute the harmonic weights
+    raw_weights = list(round(1/author_seq_samp,2)),
+    norm_harm = list(round(raw_weights/har_denom, digits=2)), 
+    harmonic_count = sum(norm_harm),
+    harmonic_count = 1- harmonic_count
+  ) %>%
+  ungroup()
+
+# set first row values to 1
+full_authorship_1$frac_count[1] <- full_authorship_1$first_author_count[1] <- 
+  full_authorship_1$inv_sqrt_count[1] <- full_authorship_1$harmonic_count[1] <- 1
+
+
+model_2 <- full_authorship_1 %>%
+  select(author_count, simple_count, frac_count, first_author_count, harmonic_count, inv_sqrt_count)
+
+# View(model_2)
+```
+
+
+
+
+
+```{r}
+#...................................
+# Model 3: Co-Authorship with only the 1st Author from the institution
+#...................................
+
+first_authorship_only <- geom_df %>%
+  mutate(
+    # simple count: Assign 1 to each contributing institution
+    simple_count = 1,
+    
+    # fractional count: A simple arithmetic calculation (Total Score)
+    frac_count = round((1/author_count), digits=2),
+    
+    # first author count
+    #  Mixed Authorship - Target institution is Co-Author (but First author is external)
+    first_author_count = round(first_author_share, 2),
+    
+    
+    # 𝟏/√𝒏-counting
+    inv_sqrt_count = round((1/sqrt(author_count)), digits=2)
+    ) %>% 
+  rowwise() %>% #treat each row as its own "group." Necessary because sum() usually summarizes an entire 
+  
+  mutate(
+    # seq_len creates the sequence (1, 2, ... author_count)
+    # sum(1 / ...) calculates the harmonic sum for that sequence
+    har_denom = round(sum(1 / seq_len(author_count)), digits = 2)
+  ) %>%
+  
+  mutate(
+    # 1. Extract the last 4 characters of item_id to be used as seed to sample
+    # 2. Convert the result to an integer
+    samp_seed = as.integer(author_count)
+    
+    
+  ) %>%
+  
+  ungroup() %>% 
+  
+  rowwise() %>% # Ungroup after using rowwise() to return to normal operations
+  
+  mutate(
+    set.seed(samp_seed),
+    author_seq_samp = 1
+      # Condition : Kassel institution is a co-author but only the first author.
+      # Sample positions from the whole range
+        
+    
+  ) %>% 
+  mutate(
+    # compute the harmonic weights
+    raw_weights = list(round(1/author_seq_samp,2)),
+    norm_harm = list(round(raw_weights/har_denom, digits=2)), 
+    harmonic_count = sum(norm_harm)
+  ) %>%
+  ungroup()
+
+# set first row values to 1
+first_authorship_only$frac_count[1] <- first_authorship_only$first_author_count[1] <- 
+  first_authorship_only$inv_sqrt_count[1] <- first_authorship_only$harmonic_count[1] <- 1
+
+model_3 <- first_authorship_only %>%
+  select(author_count, simple_count, frac_count, first_author_count, harmonic_count, inv_sqrt_count)
+
+#print(model_3)
+  
+```
+
+```{r}
+
+summary_model1 <- summary_model(full_authorship, author_count)
+plot_model1 <- plot_models(summary_model1)
+plot_model1
+```
+
+```{r}
+# Co-Authorship with Only the 1st Author as External
+# Model 2: Co-Authorship with Only the 1st Author as External
+
+summary_model2 <- summary_model(full_authorship_1, author_count)
+
+plot_model2 <- plot_models(summary_model2, title = "Model 2: Co-Authorship with Only the 1st Author as External")
+plot_model2 
+```
+
+```{r}
+# Model 3: Co-Authorship with only the 1st Author from the institution
+
+summary_model3 <- summary_model(model_3, author_count)
+
+plot_model2 <- plot_models(summary_model3, title = "Model 3: Co-Authorship with only the 1st Author from the institution")
+plot_model2
+```
+
+
+```
+End of code 
+
+Thank you
+
+Joshua Adu
+```
+
