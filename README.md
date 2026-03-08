@@ -2,9 +2,9 @@
 
 --- Read Me----
 
-This is a redacted version of a semester paper of a Masters program in Economics at the University of Kassel, Germany.
+This is a redacted version of my masters in Economics semester paper at the University of Kassel, Germany.
 
-Topic: Comparative Analysis of Bibliometric weighting methods: A Case Study of University of Kassel and Klinikum Kassel
+Topic: Comparative Analysis of Author Weighting Methods: A Case Study of the University of Kassel and Klinikum Kassel
 
 Coding was done in R markdown ( .rmd)
 Relevant dataset - four csv files attached.
